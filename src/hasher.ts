@@ -1,0 +1,71 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as crypto from "node:crypto";
+
+const SKIP_FILES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
+
+/**
+ * Compute a content hash for a skill directory.
+ * Recursively hashes all files (sorted by relative path), excludes .source.json.
+ */
+export function hashSkillDir(dirPath: string): string | null {
+  if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+    return null;
+  }
+
+  const files = collectFiles(dirPath);
+  const filtered = files.filter(f => {
+    const base = path.basename(f);
+    return base !== ".source.json" && !SKIP_FILES.has(base);
+  }).sort();
+
+  if (filtered.length === 0) {
+    return null;
+  }
+
+  const hasher = crypto.createHash("sha256");
+  for (const relPath of filtered) {
+    const absPath = path.join(dirPath, relPath);
+    const content = fs.readFileSync(absPath);
+    hasher.update(relPath);
+    hasher.update("\0");
+    hasher.update(content);
+    hasher.update("\0");
+  }
+
+  return hasher.digest("hex");
+}
+
+export function hashSkillFiles(dirPath: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+    return result;
+  }
+
+  const files = collectFiles(dirPath)
+    .filter(f => path.basename(f) !== ".source.json")
+    .sort();
+
+  for (const relPath of files) {
+    const absPath = path.join(dirPath, relPath);
+    const content = fs.readFileSync(absPath);
+    result[relPath] = crypto.createHash("sha256").update(content).digest("hex");
+  }
+
+  return result;
+}
+
+function collectFiles(dirPath: string, basePath: string = dirPath): string[] {
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  const result: string[] = [];
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === ".sync-backup") continue;
+      result.push(...collectFiles(fullPath, basePath));
+    } else if (entry.isFile()) {
+      result.push(path.relative(basePath, fullPath));
+    }
+  }
+  return result;
+}

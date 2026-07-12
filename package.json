@@ -1,0 +1,18 @@
+{
+  "name": "proma-manager-mcp",
+  "version": "1.4.0",
+  "description": "Proma 管理工具箱：跨工作区 Skill 同步与溯源、MCP 配置一致性检查、Skill 分组管理、Chat 与 Agent 会话管理",
+  "type": "module",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
