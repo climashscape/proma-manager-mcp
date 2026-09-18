@@ -2,8 +2,28 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getSkillsDir, listDefaultSkills } from "./scanner.js";
 import { hashSkillDir } from "./hasher.js";
-import { safeResolve, safeSegment } from "./pathsafe.js";
+import { safeSegment } from "./pathsafe.js";
 import { SourceJson, SyncResult, SyncResultItem, BootstrapResult } from "./types.js";
+
+/**
+ * Same-module path guard (CWE-22): resolve `userInput` under `base` and
+ * refuse anything outside it. Kept local to this module so the sanitizer
+ * is visible at every filesystem sink here.
+ */
+function safeResolve(base: string, userInput: string, label = "path"): string {
+  if (userInput === "" || userInput === "." || userInput.includes("\0")) {
+    throw new Error(`${label}: Refusing empty/NUL path segment: "${userInput}"`);
+  }
+  if (userInput.split(/[\\/]+/).includes("..")) {
+    throw new Error(`${label}: Refusing ".." segment in path: "${userInput}"`);
+  }
+  const baseAbs = path.resolve(base);
+  const resolved = path.resolve(baseAbs, userInput);
+  if (resolved !== baseAbs && !resolved.startsWith(baseAbs + path.sep)) {
+    throw new Error(`${label}: Refusing path outside ${baseAbs}: ${userInput}`);
+  }
+  return resolved;
+}
 
 /**
  * Sync: copy skill directory from mother to one or more child workspaces.

@@ -1,7 +1,27 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getSkillsDir, discoverWorkspaces, listDefaultSkills } from "./scanner.js";
-import { safeResolve, safeSegment } from "./pathsafe.js";
+import { safeSegment } from "./pathsafe.js";
+
+/**
+ * Same-module path guard (CWE-22): resolve `userInput` under `base` and
+ * refuse anything outside it. Kept local to this module so the sanitizer
+ * is visible at every filesystem sink here.
+ */
+function safeResolve(base: string, userInput: string, label = "path"): string {
+  if (userInput === "" || userInput === "." || userInput.includes("\0")) {
+    throw new Error(`${label}: Refusing empty/NUL path segment: "${userInput}"`);
+  }
+  if (userInput.split(/[\\/]+/).includes("..")) {
+    throw new Error(`${label}: Refusing ".." segment in path: "${userInput}"`);
+  }
+  const baseAbs = path.resolve(base);
+  const resolved = path.resolve(baseAbs, userInput);
+  if (resolved !== baseAbs && !resolved.startsWith(baseAbs + path.sep)) {
+    throw new Error(`${label}: Refusing path outside ${baseAbs}: ${userInput}`);
+  }
+  return resolved;
+}
 
 /** Summary of a skill for AI-driven group classification */
 export interface SkillGroupSummary {
