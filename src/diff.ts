@@ -2,17 +2,20 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getSkillsDir, listDefaultSkills } from "./scanner.js";
 import { hashSkillFiles } from "./hasher.js";
+import { safeResolve, safeSegment } from "./pathsafe.js";
 
 /**
  * Generate a human-readable diff between mother and child skill directories.
  * Refuses to operate on default-skills managed by workspace-watcher.
  */
 export function diffSkill(skill: string, workspace: string): string {
+  const skillSafe = safeSegment(skill, "skill");
+  const wsSafe = safeSegment(workspace, "workspace");
   if (listDefaultSkills().has(skill)) {
     return `ERROR: "${skill}" is a default-skill managed by workspace-watcher. Diff not applicable.`;
   }
   // Find the mother workspace by reading child's .source.json
-  const childDir = path.join(getSkillsDir(workspace), skill);
+  const childDir = safeResolve(getSkillsDir(wsSafe), skillSafe, "skill directory");
   const srcFile = path.join(childDir, ".source.json");
 
   if (!fs.existsSync(childDir)) {
@@ -33,7 +36,7 @@ export function diffSkill(skill: string, workspace: string): string {
     return "ERROR: no sourceWorkspaceSlug in .source.json — run bootstrap first";
   }
 
-  const motherDir = path.join(getSkillsDir(motherSlug), skill);
+  const motherDir = safeResolve(getSkillsDir(safeSegment(motherSlug, "sourceWorkspaceSlug")), skillSafe, "mother skill directory");
   if (!fs.existsSync(motherDir)) {
     return `ERROR: mother skill "${skill}" not found in workspace "${motherSlug}"`;
   }

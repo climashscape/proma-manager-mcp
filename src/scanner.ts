@@ -7,6 +7,7 @@ import {
 } from "./types.js";
 import { hashSkillDir } from "./hasher.js";
 import { checkGroups } from "./group-check.js";
+import { safeSegment } from "./pathsafe.js";
 
 export const WORKSPACES_ROOT = path.join(os.homedir(), ".proma", "agent-workspaces");
 export const DEFAULT_SKILLS_DIR = path.join(os.homedir(), ".proma", "default-skills");
@@ -51,7 +52,7 @@ function collectOrphans(skillName: string, wsList: string[], orphans: OrphanSkil
     try {
       const raw = fs.readFileSync(srcFile, "utf-8");
       const sj: SourceJson = JSON.parse(raw);
-      const claimedSource = sj.sourceWorkspaceSlug;
+      const claimedSource = safeSegment(sj.sourceWorkspaceSlug, "sourceWorkspaceSlug");
       if (!fs.existsSync(path.join(getSkillsDir(claimedSource), skillName))) {
         orphans.push({
           name: skillName,
@@ -118,9 +119,15 @@ export function check(): CheckResult {
 
     // Determine mother workspace: the one claimed as source by a child's .source.json
     for (const [ws, sj] of hasSourceJson) {
-      if (sj.sourceWorkspaceSlug && !hasSourceJson.has(sj.sourceWorkspaceSlug)) {
-        motherWs = sj.sourceWorkspaceSlug;
-        break;
+      if (!sj.sourceWorkspaceSlug) continue;
+      try {
+        const claimed = safeSegment(sj.sourceWorkspaceSlug, "sourceWorkspaceSlug");
+        if (!hasSourceJson.has(claimed)) {
+          motherWs = claimed;
+          break;
+        }
+      } catch {
+        // Invalid slug in .source.json — treat as no claim, try next workspace
       }
     }
 

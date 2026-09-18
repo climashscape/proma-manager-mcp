@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getSkillsDir, discoverWorkspaces, listDefaultSkills } from "./scanner.js";
+import { safeResolve, safeSegment } from "./pathsafe.js";
 
 /** Summary of a skill for AI-driven group classification */
 export interface SkillGroupSummary {
@@ -32,7 +33,7 @@ export interface GroupSetResult {
  * If workspace not specified, defaults to "default".
  */
 export function listGroups(workspace?: string): GroupListResult {
-  const ws = workspace || "default";
+  const ws = safeSegment(workspace || "default", "workspace");
   const skillsDir = getSkillsDir(ws);
   const skills: SkillGroupSummary[] = [];
   let groupedCount = 0;
@@ -110,7 +111,8 @@ export function listGroups(workspace?: string): GroupListResult {
  * groups: { "skill-name": "Group Name", ... }
  */
 export function setGroups(workspace: string, groups: Record<string, string>): GroupSetResult {
-  const skillsDir = getSkillsDir(workspace);
+  const wsSafe = safeSegment(workspace, "workspace");
+  const skillsDir = getSkillsDir(wsSafe);
   const results: GroupSetResult["results"] = [];
   const dsSkills = listDefaultSkills();
 
@@ -119,11 +121,18 @@ export function setGroups(workspace: string, groups: Record<string, string>): Gr
   }
 
   for (const [skillName, groupValue] of Object.entries(groups)) {
+    let skillNameSafe: string;
+    try {
+      skillNameSafe = safeSegment(skillName, "skill");
+    } catch (e: any) {
+      results.push({ name: skillName, group: groupValue, success: false, error: e.message });
+      continue;
+    }
     if (dsSkills.has(skillName)) {
       results.push({ name: skillName, group: groupValue, success: false, error: `Refused: "${skillName}" is a default-skill managed by workspace-watcher. Do not set group manually.` });
       continue;
     }
-    const skillMd = path.join(skillsDir, skillName, "SKILL.md");
+    const skillMd = safeResolve(skillsDir, path.join(skillNameSafe, "SKILL.md"), "SKILL.md path");
 
     if (!fs.existsSync(skillMd)) {
       results.push({ name: skillName, group: groupValue, success: false, error: "SKILL.md not found" });

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getSkillsDir, listDefaultSkills } from "./scanner.js";
 import { hashSkillDir } from "./hasher.js";
+import { safeResolve, safeSegment } from "./pathsafe.js";
 import { SourceJson, SyncResult, SyncResultItem, BootstrapResult } from "./types.js";
 
 /**
@@ -11,20 +12,23 @@ import { SourceJson, SyncResult, SyncResultItem, BootstrapResult } from "./types
  * Refuses to operate on default-skills managed by workspace-watcher.
  */
 export function syncSkill(skill: string, targetWorkspaces: string[], sourceWorkspace?: string): SyncResult {
+  const skillSafe = safeSegment(skill, "skill");
+  const targets = targetWorkspaces.map(ws => safeSegment(ws, "workspace"));
+  const sourceWsSafe = sourceWorkspace !== undefined ? safeSegment(sourceWorkspace, "sourceWorkspace") : undefined;
   if (listDefaultSkills().has(skill)) {
     return { skill, results: [{ workspace: "*", success: false, error: `Refused: "${skill}" is a default-skill managed by workspace-watcher. Do not sync manually.` }] };
   }
   const results: SyncResultItem[] = [];
-  let motherWs: string | null = sourceWorkspace || null;
+  let motherWs: string | null = sourceWsSafe || null;
 
   // Auto-detect mother if not provided
   if (!motherWs) {
-    for (const ws of targetWorkspaces) {
-      const srcFile = path.join(getSkillsDir(ws), skill, ".source.json");
+    for (const ws of targets) {
+      const srcFile = safeResolve(getSkillsDir(ws), path.join(skillSafe, ".source.json"), "source file");
       if (fs.existsSync(srcFile)) {
         try {
           const sj: SourceJson = JSON.parse(fs.readFileSync(srcFile, "utf-8"));
-          motherWs = sj.sourceWorkspaceSlug;
+          motherWs = safeSegment(sj.sourceWorkspaceSlug, "sourceWorkspaceSlug");
           break;
         } catch { /* keep looking */ }
       }
@@ -32,8 +36,8 @@ export function syncSkill(skill: string, targetWorkspaces: string[], sourceWorks
   }
 
   if (!motherWs) {
-    for (const ws of targetWorkspaces) {
-      const wsDir = path.join(getSkillsDir(ws), skill);
+    for (const ws of targets) {
+      const wsDir = safeResolve(getSkillsDir(ws), skillSafe, "skill directory");
       if (fs.existsSync(wsDir) && !fs.existsSync(path.join(wsDir, ".source.json"))) {
         motherWs = ws;
         break;
@@ -50,7 +54,7 @@ export function syncSkill(skill: string, targetWorkspaces: string[], sourceWorks
     return { skill, results };
   }
 
-  const motherDir = path.join(getSkillsDir(motherWs), skill);
+  const motherDir = safeResolve(getSkillsDir(motherWs), skillSafe, "mother skill directory");
   if (!fs.existsSync(motherDir)) {
     results.push({
       workspace: motherWs,
@@ -63,19 +67,19 @@ export function syncSkill(skill: string, targetWorkspaces: string[], sourceWorks
   const motherHash = hashSkillDir(motherDir);
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 
-  for (const ws of targetWorkspaces) {
+  for (const ws of targets) {
     if (ws === motherWs) {
       results.push({ workspace: ws, success: true, error: "same as mother, skipped" });
       continue;
     }
 
-    const childDir = path.join(getSkillsDir(ws), skill);
+    const childDir = safeResolve(getSkillsDir(ws), skillSafe, "child skill directory");
     const childExists = fs.existsSync(childDir);
     let backupPath: string | undefined;
 
     // Backup existing child
     if (childExists) {
-      const backupDir = path.join(getSkillsDir(ws), ".sync-backup", skill, timestamp);
+      const backupDir = safeResolve(getSkillsDir(ws), path.join(".sync-backup", skillSafe, timestamp), "backup directory");
       try {
         fs.mkdirSync(path.dirname(backupDir), { recursive: true });
         fs.cpSync(childDir, backupDir, { recursive: true });
@@ -136,10 +140,13 @@ export function syncSkill(skill: string, targetWorkspaces: string[], sourceWorks
  * Bootstrap: create .source.json for a skill in a workspace that lacks one.
  */
 export function bootstrap(skill: string, workspace: string, sourceWorkspace: string): BootstrapResult {
+  const skillSafe = safeSegment(skill, "skill");
+  const wsSafe = safeSegment(workspace, "workspace");
+  const srcWsSafe = safeSegment(sourceWorkspace, "sourceWorkspace");
   if (listDefaultSkills().has(skill)) {
     return { skill, workspace, sourceWorkspace, created: false, sourceJson: { error: `Refused: "${skill}" is a default-skill managed by workspace-watcher. Do not bootstrap manually.` } };
   }
-  const childDir = path.join(getSkillsDir(workspace), skill);
+  const childDir = safeResolve(getSkillsDir(wsSafe), skillSafe, "skill directory");
   const srcFile = path.join(childDir, ".source.json");
 
   if (!fs.existsSync(childDir)) {
@@ -152,7 +159,7 @@ export function bootstrap(skill: string, workspace: string, sourceWorkspace: str
     };
   }
 
-  const motherDir = path.join(getSkillsDir(sourceWorkspace), skill);
+  const motherDir = safeResolve(getSkillsDir(srcWsSafe), skillSafe, "mother skill directory");
   if (!fs.existsSync(motherDir)) {
     return {
       skill,

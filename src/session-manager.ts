@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { safeResolve, safeSegment } from "./pathsafe.js";
 
 // ============================================================
 // 类型定义
@@ -216,6 +217,13 @@ export function listSessions(
 // ============================================================
 
 export function deleteConversation(id: string, confirm: boolean): DeletePreview | DeleteResult {
+  let idSafe: string;
+  try {
+    idSafe = safeSegment(id, "id");
+  } catch (e: any) {
+    return { success: false, id, type: "conversation", error: e.message };
+  }
+
   const data = readJsonSafe(CONVERSATIONS_JSON);
   if (!data?.conversations) {
     return { success: false, id, type: "conversation", error: "conversations.json 读取失败" };
@@ -229,13 +237,13 @@ export function deleteConversation(id: string, confirm: boolean): DeletePreview 
   const items: DeletePreviewItem[] = [];
 
   // 消息文件
-  const msgFile = path.join(CONVERSATIONS_DIR, `${id}.jsonl`);
+  const msgFile = safeResolve(CONVERSATIONS_DIR, `${idSafe}.jsonl`, "conversation message file");
   if (fs.existsSync(msgFile)) {
     items.push({ path: msgFile, type: "file", sizeBytes: fileSizeSafe(msgFile) });
   }
 
   // 附件目录
-  const attDir = path.join(ATTACHMENTS_DIR, id);
+  const attDir = safeResolve(ATTACHMENTS_DIR, idSafe, "conversation attachments dir");
   if (fs.existsSync(attDir)) {
     const sz = dirSizeSafe(attDir);
     items.push({ path: attDir, type: "directory", sizeBytes: sz });
@@ -279,6 +287,13 @@ export function deleteConversation(id: string, confirm: boolean): DeletePreview 
 }
 
 export function deleteAgentSession(id: string, confirm: boolean): DeletePreview | DeleteResult {
+  let idSafe: string;
+  try {
+    idSafe = safeSegment(id, "id");
+  } catch (e: any) {
+    return { success: false, id, type: "agent-session", error: e.message };
+  }
+
   const data = readJsonSafe(AGENT_SESSIONS_JSON);
   if (!data?.sessions) {
     return { success: false, id, type: "agent-session", error: "agent-sessions.json 读取失败" };
@@ -292,7 +307,7 @@ export function deleteAgentSession(id: string, confirm: boolean): DeletePreview 
   const items: DeletePreviewItem[] = [];
 
   // 消息文件
-  const msgFile = path.join(AGENT_SESSIONS_DIR, `${id}.jsonl`);
+  const msgFile = safeResolve(AGENT_SESSIONS_DIR, `${idSafe}.jsonl`, "agent session message file");
   if (fs.existsSync(msgFile)) {
     items.push({ path: msgFile, type: "file", sizeBytes: fileSizeSafe(msgFile) });
   }
@@ -302,7 +317,7 @@ export function deleteAgentSession(id: string, confirm: boolean): DeletePreview 
     const slugMap = getWorkspaceSlugMap();
     const slug = slugMap.get(sess.workspaceId);
     if (slug) {
-      const sessionDir = path.join(WORKSPACES_ROOT, slug, id);
+      const sessionDir = safeResolve(path.join(WORKSPACES_ROOT, safeSegment(slug, "workspace slug")), idSafe, "session work dir");
       if (fs.existsSync(sessionDir)) {
         const sz = dirSizeSafe(sessionDir);
         items.push({ path: sessionDir, type: "directory", sizeBytes: sz });
@@ -315,7 +330,7 @@ export function deleteAgentSession(id: string, confirm: boolean): DeletePreview 
   if (sdkSessionIds.length > 0) {
     const fileHistoryDir = path.join(SDK_CONFIG_DIR, "file-history");
     for (const sid of sdkSessionIds) {
-      const histDir = path.join(fileHistoryDir, sid);
+      const histDir = safeResolve(fileHistoryDir, safeSegment(sid, "sdkSessionId"), "file-history dir");
       if (fs.existsSync(histDir)) {
         items.push({ path: histDir, type: "directory", sizeBytes: dirSizeSafe(histDir) });
       }
@@ -371,7 +386,7 @@ export function deleteAgentSession(id: string, confirm: boolean): DeletePreview 
     const slugMap = getWorkspaceSlugMap();
     const slug = slugMap.get(sess.workspaceId);
     if (slug) {
-      const sessionDir = path.join(WORKSPACES_ROOT, slug, id);
+      const sessionDir = safeResolve(path.join(WORKSPACES_ROOT, safeSegment(slug, "workspace slug")), idSafe, "session work dir");
       if (fs.existsSync(sessionDir)) {
         try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (e: any) {
           console.warn(`[session-manager] 清理工作目录失败: ${sessionDir}`, e.message);
@@ -384,7 +399,7 @@ export function deleteAgentSession(id: string, confirm: boolean): DeletePreview 
   if (sdkSessionIds.length > 0) {
     const fileHistoryDir = path.join(SDK_CONFIG_DIR, "file-history");
     for (const sid of sdkSessionIds) {
-      const histDir = path.join(fileHistoryDir, sid);
+      const histDir = safeResolve(fileHistoryDir, safeSegment(sid, "sdkSessionId"), "file-history dir");
       if (fs.existsSync(histDir)) {
         try { fs.rmSync(histDir, { recursive: true, force: true }); } catch (e: any) {
           console.warn(`[session-manager] 清理 file-history 失败: ${histDir}`, e.message);

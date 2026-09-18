@@ -12,6 +12,7 @@ import { checkMcp } from "./mcp-check.js";
 import { listGroups, setGroups } from "./auto-group.js";
 import { hashSkillDir, hashSkillFiles } from "./hasher.js";
 import { listSessions, deleteConversation, deleteAgentSession } from "./session-manager.js";
+import { safeResolve } from "./pathsafe.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -165,129 +166,137 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
-  switch (name) {
-    case "check": {
-      const result = check();
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }
-
-    case "diff": {
-      const skill = (args as any).skill as string;
-      validateSkillName(skill);
-      const workspace = (args as any).workspace as string;
-      const text = diffSkill(skill, workspace);
-      return { content: [{ type: "text", text }] };
-    }
-
-    case "sync": {
-      const skill = (args as any).skill as string;
-      validateSkillName(skill);
-      const workspaces = (args as any).workspaces as string[];
-      const sourceWorkspace = (args as any).sourceWorkspace as string | undefined;
-      const result = syncSkill(skill, workspaces, sourceWorkspace);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }
-
-    case "bootstrap": {
-      const skill = (args as any).skill as string;
-      validateSkillName(skill);
-      const workspace = (args as any).workspace as string;
-      const sourceWorkspace = (args as any).sourceWorkspace as string;
-      const result = bootstrap(skill, workspace, sourceWorkspace);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }
-
-    case "info": {
-      const skill = (args as any).skill as string;
-      validateSkillName(skill);
-      if (listDefaultSkills().has(skill)) {
-        return { content: [{ type: "text", text: JSON.stringify({ name: skill, error: `"${skill}" is a default-skill managed by workspace-watcher.` }, null, 2) }] };
+  try {
+    switch (name) {
+      case "check": {
+        const result = check();
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
-      const checkResult = check();
-      const wsInfo: Record<string, any> = {};
 
-      const allWs = discoverWorkspaces();
-      for (const ws of allWs) {
-        const slug = ws.slug;
-        const dir = path.join(getSkillsDir(slug), skill);
-        const exists = fs.existsSync(dir) && fs.statSync(dir).isDirectory();
-        wsInfo[slug] = {
-          exists,
-          isMother: false,
-          hash: exists ? hashSkillDir(dir) : null,
-          hasSourceJson: exists && fs.existsSync(path.join(dir, ".source.json")),
-          files: exists ? fs.readdirSync(dir, { recursive: true, withFileTypes: true })
-            .filter(e => e.isFile() && e.name !== ".source.json" && !SKIP_FILES.has(e.name) && !e.parentPath?.includes(path.sep + ".sync-backup" + path.sep))
-            .map(e => {
-              const full = path.join(e.parentPath || e.path, e.name);
-              return path.relative(dir, full);
-            })
-            .sort() : [],
+      case "diff": {
+        const skill = (args as any).skill as string;
+        validateSkillName(skill);
+        const workspace = (args as any).workspace as string;
+        const text = diffSkill(skill, workspace);
+        return { content: [{ type: "text", text }] };
+      }
+
+      case "sync": {
+        const skill = (args as any).skill as string;
+        validateSkillName(skill);
+        const workspaces = (args as any).workspaces as string[];
+        const sourceWorkspace = (args as any).sourceWorkspace as string | undefined;
+        const result = syncSkill(skill, workspaces, sourceWorkspace);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "bootstrap": {
+        const skill = (args as any).skill as string;
+        validateSkillName(skill);
+        const workspace = (args as any).workspace as string;
+        const sourceWorkspace = (args as any).sourceWorkspace as string;
+        const result = bootstrap(skill, workspace, sourceWorkspace);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "info": {
+        const skill = (args as any).skill as string;
+        validateSkillName(skill);
+        if (listDefaultSkills().has(skill)) {
+          return { content: [{ type: "text", text: JSON.stringify({ name: skill, error: `"${skill}" is a default-skill managed by workspace-watcher.` }, null, 2) }] };
+        }
+        const checkResult = check();
+        const wsInfo: Record<string, any> = {};
+
+        const allWs = discoverWorkspaces();
+        for (const ws of allWs) {
+          const slug = ws.slug;
+          const dir = safeResolve(getSkillsDir(slug), skill, "skill directory");
+          const exists = fs.existsSync(dir) && fs.statSync(dir).isDirectory();
+          wsInfo[slug] = {
+            exists,
+            isMother: false,
+            hash: exists ? hashSkillDir(dir) : null,
+            hasSourceJson: exists && fs.existsSync(path.join(dir, ".source.json")),
+            files: exists ? fs.readdirSync(dir, { recursive: true, withFileTypes: true })
+              .filter(e => e.isFile() && e.name !== ".source.json" && !SKIP_FILES.has(e.name) && !e.parentPath?.includes(path.sep + ".sync-backup" + path.sep))
+              .map(e => {
+                const full = path.join(e.parentPath || e.path, e.name);
+                return path.relative(dir, full);
+              })
+              .sort() : [],
+          };
+          if (exists && fs.existsSync(path.join(dir, ".source.json"))) {
+            wsInfo[slug].sourceJson = JSON.parse(fs.readFileSync(path.join(dir, ".source.json"), "utf-8"));
+          }
+        }
+
+        // Determine mother
+        for (const m of checkResult.managed) {
+          if (m.name === skill) {
+            wsInfo[m.sourceWorkspace].isMother = true;
+          }
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ name: skill, workspaces: wsInfo }, null, 2),
+          }],
         };
-        if (exists && fs.existsSync(path.join(dir, ".source.json"))) {
-          wsInfo[slug].sourceJson = JSON.parse(fs.readFileSync(path.join(dir, ".source.json"), "utf-8"));
+      }
+
+      case "mcp_check": {
+        const result = checkMcp();
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "group_list": {
+        const workspace = (args as any).workspace as string | undefined;
+        const result = listGroups(workspace);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "group_set": {
+        const workspace = (args as any).workspace as string;
+        const groups = (args as any).groups as Record<string, string>;
+        const result = setGroups(workspace, groups);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "list_sessions": {
+        const type = (args as any).type as string | undefined;
+        const result = listSessions(type as "conversations" | "agent-sessions" | undefined);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "delete_session": {
+        const type = (args as any).type as string;
+        const id = (args as any).id as string;
+        const confirm = !!(args as any).confirm;
+        if (!id) {
+          return { content: [{ type: "text", text: JSON.stringify({ success: false, error: "id 不能为空" }) }] };
+        }
+        if (type === "conversation") {
+          const result = deleteConversation(id, confirm);
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        } else if (type === "agent-session") {
+          const result = deleteAgentSession(id, confirm);
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        } else {
+          return { content: [{ type: "text", text: JSON.stringify({ success: false, error: `无效的 type: ${type}，应为 conversation 或 agent-session` }) }] };
         }
       }
 
-      // Determine mother
-      for (const m of checkResult.managed) {
-        if (m.name === skill) {
-          wsInfo[m.sourceWorkspace].isMother = true;
-        }
-      }
-
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({ name: skill, workspaces: wsInfo }, null, 2),
-        }],
-      };
+      default:
+        throw new Error(`Unknown tool: ${name}`);
     }
-
-    case "mcp_check": {
-      const result = checkMcp();
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }
-
-    case "group_list": {
-      const workspace = (args as any).workspace as string | undefined;
-      const result = listGroups(workspace);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }
-
-    case "group_set": {
-      const workspace = (args as any).workspace as string;
-      const groups = (args as any).groups as Record<string, string>;
-      const result = setGroups(workspace, groups);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }
-
-    case "list_sessions": {
-      const type = (args as any).type as string | undefined;
-      const result = listSessions(type as "conversations" | "agent-sessions" | undefined);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }
-
-    case "delete_session": {
-      const type = (args as any).type as string;
-      const id = (args as any).id as string;
-      const confirm = !!(args as any).confirm;
-      if (!id) {
-        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: "id 不能为空" }) }] };
-      }
-      if (type === "conversation") {
-        const result = deleteConversation(id, confirm);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-      } else if (type === "agent-session") {
-        const result = deleteAgentSession(id, confirm);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-      } else {
-        return { content: [{ type: "text", text: JSON.stringify({ success: false, error: `无效的 type: ${type}，应为 conversation 或 agent-session` }) }] };
-      }
-    }
-
-    default:
-      throw new Error(`Unknown tool: ${name}`);
+  } catch (err) {
+    // Structured tool error (PathTraversalError included) instead of a JSON-RPC protocol-level error; non-Error throwables are stringified, not swallowed.
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      content: [{ type: "text", text: JSON.stringify({ error: message }, null, 2) }],
+    };
   }
 });
 
