@@ -2,7 +2,27 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getSkillsDir, listDefaultSkills } from "./scanner.js";
 import { hashSkillFiles } from "./hasher.js";
-import { safeResolve, safeSegment } from "./pathsafe.js";
+import { safeSegment } from "./pathsafe.js";
+
+/**
+ * Same-module path guard (CWE-22): resolve `userInput` under `base` and
+ * refuse anything outside it. Kept local to this module so the sanitizer
+ * is visible at every filesystem sink here.
+ */
+function safeResolve(base: string, userInput: string): string {
+  if (userInput === "" || userInput === "." || userInput.includes("\0")) {
+    throw new Error(`Refusing empty/NUL path segment: "${userInput}"`);
+  }
+  if (userInput.split(/[\\/]+/).includes("..")) {
+    throw new Error(`Refusing ".." segment in path: "${userInput}"`);
+  }
+  const baseAbs = path.resolve(base);
+  const resolved = path.resolve(baseAbs, userInput);
+  if (resolved !== baseAbs && !resolved.startsWith(baseAbs + path.sep)) {
+    throw new Error(`Refusing path outside ${baseAbs}: ${userInput}`);
+  }
+  return resolved;
+}
 
 /**
  * Generate a human-readable diff between mother and child skill directories.
@@ -15,7 +35,7 @@ export function diffSkill(skill: string, workspace: string): string {
     return `ERROR: "${skill}" is a default-skill managed by workspace-watcher. Diff not applicable.`;
   }
   // Find the mother workspace by reading child's .source.json
-  const childDir = safeResolve(getSkillsDir(wsSafe), skillSafe, "skill directory");
+  const childDir = safeResolve(getSkillsDir(wsSafe), skillSafe);
   const srcFile = path.join(childDir, ".source.json");
 
   if (!fs.existsSync(childDir)) {
@@ -36,7 +56,7 @@ export function diffSkill(skill: string, workspace: string): string {
     return "ERROR: no sourceWorkspaceSlug in .source.json — run bootstrap first";
   }
 
-  const motherDir = safeResolve(getSkillsDir(safeSegment(motherSlug, "sourceWorkspaceSlug")), skillSafe, "mother skill directory");
+  const motherDir = safeResolve(getSkillsDir(safeSegment(motherSlug, "sourceWorkspaceSlug")), skillSafe);
   if (!fs.existsSync(motherDir)) {
     return `ERROR: mother skill "${skill}" not found in workspace "${motherSlug}"`;
   }
