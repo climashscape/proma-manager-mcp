@@ -205,7 +205,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         validateSkillName(skill);
         const workspaces = (args as any).workspaces as string[];
         const sourceWorkspace = (args as any).sourceWorkspace as string | undefined;
-        const result = syncSkill(skill, workspaces, sourceWorkspace);
+        const result = await syncSkill(skill, workspaces, sourceWorkspace);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
@@ -214,7 +214,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         validateSkillName(skill);
         const workspace = (args as any).workspace as string;
         const sourceWorkspace = (args as any).sourceWorkspace as string;
-        const result = bootstrap(skill, workspace, sourceWorkspace);
+        const result = await bootstrap(skill, workspace, sourceWorkspace);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
