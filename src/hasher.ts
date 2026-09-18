@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
+import { safeResolve } from "./pathsafe.js";
 
 const SKIP_FILES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
 
@@ -47,7 +48,7 @@ export function hashSkillFiles(dirPath: string): Record<string, string> {
     .sort();
 
   for (const relPath of files) {
-    const absPath = path.join(dirPath, relPath);
+    const absPath = safeResolve(dirPath, relPath);
     const content = fs.readFileSync(absPath);
     result[relPath] = crypto.createHash("sha256").update(content).digest("hex");
   }
